@@ -1,4 +1,5 @@
 """The Generative AI Conversation integration."""
+
 from __future__ import annotations
 
 import json
@@ -134,9 +135,15 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
         self.entry = entry
         self.history: dict[str, list[dict]] = {}
         self.model = None
-        
-        # Configure the Generative AI API
-        genai.configure(api_key=entry.data[CONF_API_KEY])
+
+        # Configure the Generative AI API with all necessary parameters
+        config = {"api_key": entry.data[CONF_API_KEY]}
+        if base_url := entry.data.get(CONF_BASE_URL):
+            config["client_options"] = {"api_endpoint": base_url}
+        if api_version := entry.data.get(CONF_API_VERSION):
+            config["api_version"] = api_version
+
+        genai.configure(**config)
 
     @property
     def supported_languages(self) -> list[str] | Literal["*"]:
@@ -335,7 +342,7 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
 
         # Get the Gemini model
         model = genai.GenerativeModel(model_name=model_name)
-        
+
         # Convert the messages to the format expected by Gemini
         gemini_messages = []
         for message in messages:
@@ -346,26 +353,23 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
             elif role == "user":
                 if len(gemini_messages) == 0 and messages[0]["role"] == "system":
                     # Add system message content to first user message
-                    gemini_messages.append({
-                        "role": "user",
-                        "parts": [messages[0]["content"] + "\n\n" + message["content"]]
-                    })
+                    gemini_messages.append(
+                        {
+                            "role": "user",
+                            "parts": [
+                                messages[0]["content"] + "\n\n" + message["content"]
+                            ],
+                        }
+                    )
                 else:
-                    gemini_messages.append({
-                        "role": "user",
-                        "parts": [message["content"]]
-                    })
+                    gemini_messages.append(
+                        {"role": "user", "parts": [message["content"]]}
+                    )
             elif role == "function" or role == "tool":
                 # Function response becomes assistant message in Gemini
-                gemini_messages.append({
-                    "role": "model",
-                    "parts": [message["content"]]
-                })
+                gemini_messages.append({"role": "model", "parts": [message["content"]]})
             elif role == "assistant":
-                gemini_messages.append({
-                    "role": "model",
-                    "parts": [message["content"]]
-                })
+                gemini_messages.append({"role": "model", "parts": [message["content"]]})
 
         # Configure generation parameters
         generation_config = GenerationConfig(
@@ -387,33 +391,43 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
                 )
 
         # Create the chat session
-        chat = model.start_chat(
-            history=gemini_messages[:-1] if gemini_messages else []
-        )
+        chat = model.start_chat(history=gemini_messages[:-1] if gemini_messages else [])
 
         # Generate the response
         if function_declarations and function_calling_enabled:
             response = await self.hass.async_add_executor_job(
-                chat.send_message,
-                gemini_messages[-1]["parts"][0],
-                generation_config=generation_config,
-                tools=[function_declarations],
+                lambda: chat.send_message(
+                    gemini_messages[-1]["parts"][0],
+                    generation_config=generation_config,
+                    tools=[function_declarations],
+                )
             )
         else:
             response = await self.hass.async_add_executor_job(
-                chat.send_message,
-                gemini_messages[-1]["parts"][0],
-                generation_config=generation_config,
+                lambda: chat.send_message(
+                    gemini_messages[-1]["parts"][0],
+                    generation_config=generation_config,
+                )
             )
 
         _LOGGER.info("Response %s", response.text)
 
         # Check token usage and truncate if needed
-        if hasattr(response, 'usage') and response.usage.total_tokens > context_threshold:
+        if (
+            hasattr(response, "usage")
+            and response.usage.total_tokens > context_threshold
+        ):
             await self.truncate_message_history(messages, exposed_entities, user_input)
 
         # Handle function call if present
-        has_function_call = hasattr(response, 'candidates') and response.candidates[0].get('function_call')
+        has_function_call = False
+        if hasattr(response, "candidates") and response.candidates:
+            candidate = response.candidates[0]
+            # Check for function_call using hasattr instead of 'get' method
+            has_function_call = hasattr(candidate, "function_call") or (
+                isinstance(candidate, dict) and "function_call" in candidate
+            )
+
         if has_function_call:
             return await self.execute_function_call(
                 user_input, messages, response, exposed_entities, n_requests + 1
@@ -435,8 +449,8 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
         exposed_entities,
         n_requests,
     ) -> GenerativeAIQueryResponse:
-        function_call = response.candidates[0]['function_call']
-        function_name = function_call['name']
+        function_call = response.candidates[0]["function_call"]
+        function_name = function_call["name"]
         function = next(
             (s for s in self.get_functions() if s["spec"]["name"] == function_name),
             None,
@@ -449,7 +463,7 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
                 exposed_entities,
                 n_requests,
                 function,
-                function_call
+                function_call,
             )
         raise FunctionNotFound(function_name)
 
@@ -466,7 +480,7 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
         function_executor = get_function_executor(function["function"]["type"])
 
         try:
-            arguments = function_call['args']
+            arguments = function_call["args"]
         except Exception as err:
             raise ParseArgumentsFailed(str(function_call)) from err
 
@@ -477,7 +491,7 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
         messages.append(
             {
                 "role": "function",
-                "name": function_call['name'],
+                "name": function_call["name"],
                 "content": str(result),
             }
         )
@@ -487,9 +501,7 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
 class GenerativeAIQueryResponse:
     """Generative AI query response value object."""
 
-    def __init__(
-        self, response, message
-    ) -> None:
+    def __init__(self, response, message) -> None:
         """Initialize Generative AI query response value object."""
         self.response = response
         self.message = message

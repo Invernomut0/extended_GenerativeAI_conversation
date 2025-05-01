@@ -9,7 +9,9 @@ CONF_API_VERSION = "api_version"
 CONF_SKIP_AUTHENTICATION = "skip_authentication"
 DEFAULT_SKIP_AUTHENTICATION = False
 
-EVENT_AUTOMATION_REGISTERED = "automation_registered_via_extended_generativeai_conversation"
+EVENT_AUTOMATION_REGISTERED = (
+    "automation_registered_via_extended_generativeai_conversation"
+)
 EVENT_CONVERSATION_FINISHED = "extended_generativeai_conversation.conversation.finished"
 
 CONF_PROMPT = "prompt"
@@ -32,7 +34,7 @@ Do not execute service without user's confirmation.
 Do not restate or appreciate what user says, rather make a quick inquiry.
 """
 CONF_CHAT_MODEL = "chat_model"
-DEFAULT_CHAT_MODEL = "gemini-pro"
+DEFAULT_CHAT_MODEL = "gemini-2.0-flash-live-001"
 CONF_MAX_TOKENS = "max_tokens"
 DEFAULT_MAX_TOKENS = 150
 CONF_TOP_P = "top_p"

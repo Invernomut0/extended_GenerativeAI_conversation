@@ -128,12 +128,19 @@ async def validate_authentication(
     if skip_authentication:
         return
 
-    # Configure generative AI with the API key
-    genai.configure(api_key=api_key)
-    
+    # Configure generative AI with the API key and additional parameters
+    config = {"api_key": api_key}
+    if base_url:
+        config["client_options"] = {"api_endpoint": base_url}
+    if api_version:
+        config["api_version"] = api_version
+
+    genai.configure(**config)
+
     # Test the connection by listing models
     try:
-        await hass.async_add_executor_job(genai.list_models)
+        # Use a lambda to avoid passing unexpected keyword arguments
+        await hass.async_add_executor_job(lambda: genai.list_models())
     except Exception as exc:
         raise HomeAssistantError(f"Authentication failed: {exc}") from exc
 
@@ -373,7 +380,7 @@ class NativeFunctionExecutor(FunctionExecutor):
         exposed_entities,
     ):
         user = await hass.auth.async_get_user(user_input.context.user_id)
-        return {'name': user.name if user and hasattr(user, 'name') else 'Unknown'}
+        return {"name": user.name if user and hasattr(user, "name") else "Unknown"}
 
     async def get_statistics(
         self,
