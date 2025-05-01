@@ -1,4 +1,4 @@
-"""Config flow for OpenAI Conversation integration."""
+"""Config flow for Generative AI Conversation integration."""
 from __future__ import annotations
 
 import logging
@@ -6,7 +6,7 @@ import types
 from types import MappingProxyType
 from typing import Any
 
-from openai._exceptions import APIConnectionError, AuthenticationError
+import google.generativeai as genai
 import voluptuous as vol
 import yaml
 
@@ -106,7 +106,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
     skip_authentication = data.get(CONF_SKIP_AUTHENTICATION)
 
     if base_url == DEFAULT_CONF_BASE_URL:
-        # Do not set base_url if using OpenAI for case of OpenAI's base_url change
+        # Do not set base_url if using default Generative AI API URL
         base_url = None
         data.pop(CONF_BASE_URL)
 
@@ -121,7 +121,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> None:
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for OpenAI Conversation."""
+    """Handle a config flow for Generative AI Conversation."""
 
     VERSION = 1
 
@@ -138,9 +138,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             await validate_input(self.hass, user_input)
-        except APIConnectionError:
+        except Exception:
             errors["base"] = "cannot_connect"
-        except AuthenticationError:
+        except Exception:
             errors["base"] = "invalid_auth"
         except Exception:  # pylint: disable=broad-except
             _LOGGER.exception("Unexpected exception")
@@ -163,7 +163,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class OptionsFlow(config_entries.OptionsFlow):
-    """OpenAI config flow options handler."""
+    """Generative AI config flow options handler."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
@@ -177,14 +177,14 @@ class OptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(
                 title=user_input.get(CONF_NAME, DEFAULT_NAME), data=user_input
             )
-        schema = self.openai_config_option_schema(self.config_entry.options)
+        schema = self.generativeai_config_option_schema(self.config_entry.options)
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema),
         )
 
-    def openai_config_option_schema(self, options: MappingProxyType[str, Any]) -> dict:
-        """Return a schema for OpenAI completion options."""
+    def generativeai_config_option_schema(self, options: MappingProxyType[str, Any]) -> dict:
+        """Return a schema for Generative AI completion options."""
         if not options:
             options = DEFAULT_OPTIONS
 

@@ -4,11 +4,7 @@ import mimetypes
 from pathlib import Path
 from urllib.parse import urlparse
 
-from openai import AsyncOpenAI
-from openai._exceptions import OpenAIError
-from openai.types.chat.chat_completion_content_part_image_param import (
-    ChatCompletionContentPartImageParam,
-)
+import google.generativeai as genai
 import voluptuous as vol
 
 from homeassistant.core import (
@@ -30,7 +26,7 @@ QUERY_IMAGE_SCHEMA = vol.Schema(
                 "integration": DOMAIN,
             }
         ),
-        vol.Required("model", default="gpt-4-vision-preview"): cv.string,
+        vol.Required("model", default="gemini-pro-vision"): cv.string,
         vol.Required("prompt"): cv.string,
         vol.Required("images"): vol.All(cv.ensure_list, [{"url": cv.string}]),
         vol.Optional("max_tokens", default=300): cv.positive_int,
@@ -41,36 +37,57 @@ _LOGGER = logging.getLogger(__package__)
 
 
 async def async_setup_services(hass: HomeAssistant, config: ConfigType) -> None:
-    """Set up services for the extended openai conversation component."""
+    """Set up services for the extended generativeai conversation component."""
 
     async def query_image(call: ServiceCall) -> ServiceResponse:
         """Query an image."""
         try:
-            model = call.data["model"]
-            images = [
-                {"type": "image_url", "image_url": to_image_param(hass, image)}
-                for image in call.data["images"]
-            ]
-
-            messages = [
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": call.data["prompt"]}] + images,
-                }
-            ]
-            _LOGGER.info("Prompt for %s: %s", model, messages)
-
-            response = await AsyncOpenAI(
-                api_key=hass.data[DOMAIN][call.data["config_entry"]]["api_key"]
-            ).chat.completions.create(
-                model=model,
-                messages=messages,
-                max_tokens=call.data["max_tokens"],
+            model_name = call.data["model"]
+            api_key = hass.data[DOMAIN][call.data["config_entry"]]["api_key"]
+            
+            # Configure the Generative AI with the API key
+            genai.configure(api_key=api_key)
+            
+            # Get the model
+            model = genai.GenerativeModel(model_name)
+            
+            # Process images
+            image_parts = []
+            for image in call.data["images"]:
+                image_data = to_image_data(hass, image)
+                if "base64" in image_data:
+                    # Image is a base64 encoded local file
+                    image_parts.append(
+                        genai.types.Blob(
+                            mime_type=image_data["mime_type"],
+                            data=base64.b64decode(image_data["base64"])
+                        )
+                    )
+                else:
+                    # Image is a URL
+                    image_parts.append(image_data["url"])
+            
+            # Create the parts list with the prompt and images
+            parts = [call.data["prompt"]] + image_parts
+            
+            # Generate the response
+            response = await hass.async_add_executor_job(
+                model.generate_content,
+                parts,
+                genai.types.GenerationConfig(max_output_tokens=call.data["max_tokens"])
             )
-            response_dict = response.model_dump()
-            _LOGGER.info("Response %s", response_dict)
-        except OpenAIError as err:
-            raise HomeAssistantError(f"Error generating image: {err}") from err
+            
+            # Convert response to dictionary
+            response_dict = {
+                "text": response.text,
+                "status": "complete",
+                "model": model_name,
+            }
+            
+            _LOGGER.info("Response from Generative AI: %s", response_dict)
+            
+        except Exception as err:
+            raise HomeAssistantError(f"Error generating image response: {err}") from err
 
         return response_dict
 
@@ -83,12 +100,12 @@ async def async_setup_services(hass: HomeAssistant, config: ConfigType) -> None:
     )
 
 
-def to_image_param(hass: HomeAssistant, image) -> ChatCompletionContentPartImageParam:
+def to_image_data(hass: HomeAssistant, image):
     """Convert url to base64 encoded image if local."""
     url = image["url"]
 
     if urlparse(url).scheme in cv.EXTERNAL_URL_PROTOCOL_SCHEMA_LIST:
-        return image
+        return {"url": url}
 
     if not hass.config.is_allowed_path(url):
         raise HomeAssistantError(
@@ -102,8 +119,7 @@ def to_image_param(hass: HomeAssistant, image) -> ChatCompletionContentPartImage
     if mime_type is None or not mime_type.startswith("image"):
         raise HomeAssistantError(f"`{url}` is not an image")
 
-    image["url"] = f"data:{mime_type};base64,{encode_image(url)}"
-    return image
+    return {"mime_type": mime_type, "base64": encode_image(url)}
 
 
 def encode_image(image_path):

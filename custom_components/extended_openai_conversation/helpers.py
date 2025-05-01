@@ -10,7 +10,7 @@ from typing import Any
 from urllib import parse
 
 from bs4 import BeautifulSoup
-from openai import AsyncAzureOpenAI, AsyncOpenAI
+import google.generativeai as genai
 import voluptuous as vol
 import yaml
 
@@ -58,20 +58,11 @@ from .exceptions import (
 _LOGGER = logging.getLogger(__name__)
 
 
-AZURE_DOMAIN_PATTERN = r"\.(openai\.azure\.com|azure-api\.net)"
-
-
 def get_function_executor(value: str):
     function_executor = FUNCTION_EXECUTORS.get(value)
     if function_executor is None:
         raise FunctionNotFound(value)
     return function_executor
-
-
-def is_azure(base_url: str):
-    if base_url and re.search(AZURE_DOMAIN_PATTERN, base_url):
-        return True
-    return False
 
 
 def convert_to_template(
@@ -137,23 +128,14 @@ async def validate_authentication(
     if skip_authentication:
         return
 
-    if is_azure(base_url):
-        client = AsyncAzureOpenAI(
-            api_key=api_key,
-            azure_endpoint=base_url,
-            api_version=api_version,
-            organization=organization,
-            http_client=get_async_client(hass),
-        )
-    else:
-        client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            organization=organization,
-            http_client=get_async_client(hass),
-        )
-
-    await hass.async_add_executor_job(partial(client.models.list, timeout=10))
+    # Configure generative AI with the API key
+    genai.configure(api_key=api_key)
+    
+    # Test the connection by listing models
+    try:
+        await hass.async_add_executor_job(genai.list_models)
+    except Exception as exc:
+        raise HomeAssistantError(f"Authentication failed: {exc}") from exc
 
 
 class FunctionExecutor(ABC):
