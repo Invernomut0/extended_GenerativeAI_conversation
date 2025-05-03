@@ -12,7 +12,8 @@ DEFAULT_SKIP_AUTHENTICATION = False
 EVENT_AUTOMATION_REGISTERED = (
     "automation_registered_via_extended_generativeai_conversation"
 )
-EVENT_CONVERSATION_FINISHED = "extended_generativeai_conversation.conversation.finished"
+EVENT_CONVERSATION_FINISHED = f"{DOMAIN}.conversation.finished"
+EVENT_GENAI_RESPONSE = f"{DOMAIN}.response"  # New event for AI text response
 
 CONF_PROMPT = "prompt"
 DEFAULT_PROMPT = """I want you to act as smart home manager of Home Assistant.

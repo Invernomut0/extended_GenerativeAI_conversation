@@ -62,6 +62,7 @@ from .const import (
     DEFAULT_USE_TOOLS,
     DOMAIN,
     EVENT_CONVERSATION_FINISHED,
+    EVENT_GENAI_RESPONSE,  # Import the new event constant
 )
 from .exceptions import (
     FunctionLoadFailed,
@@ -697,6 +698,10 @@ class GenerativeAIAgent(conversation.AbstractConversationAgent):
         # Process the text response (if any).
         if response_text is not None:
             _LOGGER.info("Processed response text: %s", response_text)
+
+            # Fire the new event with the response text
+            self.hass.bus.async_fire(EVENT_GENAI_RESPONSE, {"text": response_text})
+
             # Create a response message for the assistant
             message = {
                 "role": "assistant",
